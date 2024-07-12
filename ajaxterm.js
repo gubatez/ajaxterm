@@ -47,7 +47,7 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
             }
         }
 	function do_get(event) {
-                return;
+                //return;
 		opt_get.className=(opt_get.className=='off')?'on':'off';
 		debug('GET '+opt_get.className);
 	}
@@ -167,7 +167,7 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
 		}
 	}
 	function keypress(ev) {
-                return;
+                //return;
 		if (!ev) var ev=window.event;
 		var kc;
 		var k="";

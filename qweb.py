@@ -105,16 +105,19 @@ TODO
 
 """
 
-import BaseHTTPServer,SocketServer,Cookie
-import cgi,datetime,email,email.Message,errno,gzip,os,random,re,socket,sys,tempfile,time,types,urllib,urlparse,xml.dom
+import http.server,socketserver,http.cookies
+#import cgi,datetime,email,email.Message,errno,gzip,os,random,re,socket,sys,tempfile,time,types,urllib.request,urllib.parse,urllib.error,urllib.parse,xml.dom
+import cgi,datetime,email,errno,gzip,os,random,re,socket,sys,tempfile,time,types,urllib.request,urllib.parse,urllib.error,urllib.parse,xml.dom
+import io
+import html
 try:
-    import cPickle as pickle
+    import pickle as pickle
 except ImportError:
     import pickle
 try:
-    import cStringIO as StringIO
+    import io as StringIO
 except ImportError:
-    import StringIO
+    import io
 
 #----------------------------------------------------------
 # Qweb Xml t-raw t-esc t-if t-foreach t-set t-call t-trim
@@ -123,18 +126,18 @@ class QWebEval:
     def __init__(self,data):
         self.data=data
     def __getitem__(self,expr):
-        if self.data.has_key(expr):
+        if expr in self.data:
             return self.data[expr]
         r=None
         try:
             r=eval(expr,self.data)
-        except NameError,e:
+        except NameError as e:
             pass
-        except AttributeError,e:
+        except AttributeError as e:
             pass
-        except Exception,e:
-            print "qweb: expression error '%s' "%expr,e
-        if self.data.has_key("__builtins__"):
+        except Exception as e:
+            print("qweb: expression error '%s' "%expr,e)
+        if "__builtins__" in self.data:
             del self.data["__builtins__"]
         return r
     def eval_object(self,expr):
@@ -142,7 +145,8 @@ class QWebEval:
     def eval_str(self,expr):
         if expr=="0":
             return self.data[0]
-        if isinstance(self[expr],unicode):
+        if isinstance(self[expr],str):
+            open('/tmp/qweb-unicode.txt', 'ab').write(self[expr]+'\n')
             return self[expr].encode("utf8")
         return str(self[expr])
     def eval_format(self,expr):
@@ -218,12 +222,13 @@ class QWebXml:
         return QWebEval(v).eval_bool(expr)
 
     def render(self,tname,v={},out=None):
-        if self._t.has_key(tname):
+        if tname in self._t:
             return self.render_node(self._t[tname],v)
         else:
             return 'qweb: template "%s" not found'%tname
     def render_node(self,e,v):
         r=""
+#        open('/tmp/qweb-node.txt', 'ab').write(e.data)
         if e.nodeType==self.node.TEXT_NODE or e.nodeType==self.node.CDATA_SECTION_NODE:
             r=e.data.encode("utf8")
         elif e.nodeType==self.node.ELEMENT_NODE:
@@ -231,9 +236,9 @@ class QWebXml:
             g_att=""
             t_render=None
             t_att={}
-            for (an,av) in e.attributes.items():
+            for (an,av) in list(e.attributes.items()):
                 an=str(an)
-                if isinstance(av,types.UnicodeType):
+                if isinstance(av,str):
                     av=av.encode("utf8")
                 else:
                     av=av.nodeValue.encode("utf8")
@@ -243,13 +248,13 @@ class QWebXml:
                             g_att+=self._render_att[i](self,e,an,av,v)
                             break
                     else:
-                        if self._render_tag.has_key(an[2:]):
+                        if an[2:] in self._render_tag:
                             t_render=an[2:]
                         t_att[an[2:]]=av
                 else:
-                    g_att+=' %s="%s"'%(an,cgi.escape(av,1));
+                    g_att+=' %s="%s"'%(an,html.escape(av,1));
             if t_render:
-                if self._render_tag.has_key(t_render):
+                if t_render in self._render_tag:
                     r=self._render_tag[t_render](self,e,t_att,g_att,v)
             else:
                 r=self.render_element(e,g_att,v,pre,t_att.get("trim",0))
@@ -283,7 +288,7 @@ class QWebXml:
             att,val=(an[6:],self.eval_str(av,v))
         else:
             att,val=self.eval_object(av,v)
-        return ' %s="%s"'%(att,cgi.escape(val,1))
+        return ' %s="%s"'%(att,html.escape(val,1))
 
     # Tags
     def render_tag_raw(self,e,t_att,g_att,v):
@@ -291,9 +296,9 @@ class QWebXml:
     def render_tag_rawf(self,e,t_att,g_att,v):
         return self.eval_format(t_att["rawf"],v)
     def render_tag_esc(self,e,t_att,g_att,v):
-        return cgi.escape(self.eval_str(t_att["esc"],v))
+        return html.escape(self.eval_str(t_att["esc"],v))
     def render_tag_escf(self,e,t_att,g_att,v):
-        return cgi.escape(self.eval_format(t_att["escf"],v))
+        return html.escape(self.eval_format(t_att["escf"],v))
     def render_tag_foreach(self,e,t_att,g_att,v):
         expr=t_att["foreach"]
         enum=self.eval_object(expr,v)
@@ -301,9 +306,9 @@ class QWebXml:
             var=t_att.get('as',expr).replace('.','_')
             d=v.copy()
             size=-1
-            if isinstance(enum,types.ListType):
+            if isinstance(enum,list):
                 size=len(enum)
-            elif isinstance(enum,types.TupleType):
+            elif isinstance(enum,tuple):
                 size=len(enum)
             elif hasattr(enum,'count'):
                 size=enum.count()
@@ -322,7 +327,7 @@ class QWebXml:
                     d["%s_parity"%var]='odd'
                 else:
                     d["%s_parity"%var]='even'
-                if isinstance(i,types.DictType):
+                if isinstance(i,dict):
                     d.update(i)
                 else:
                     d[var]=i
@@ -338,14 +343,14 @@ class QWebXml:
             return ""
     def render_tag_call(self,e,t_att,g_att,v):
         # TODO t-prefix
-        if t_att.has_key("import"):
+        if "import" in t_att:
             d=v
         else:
             d=v.copy()
         d[0]=self.render_element(e,g_att,d)
         return self.render(t_att["call"],d)
     def render_tag_set(self,e,t_att,g_att,v):
-        if t_att.has_key("eval"):
+        if "eval" in t_att:
             v[t_att["set"]]=self.eval_object(t_att["eval"],v)
         else:
             v[t_att["set"]]=self.render_element(e,g_att,v)
@@ -371,11 +376,12 @@ class QWebURL:
         self.req_len=len(self.req_list)
     def decode(self,s):
         h={}
-        for k,v in cgi.parse_qsl(s,1):
+        #for k,v in cgi.parse_qsl(s,1):
+        for k,v in  urllib.parse.parse_qsl(s,1):
             h[k]=v
         return h
     def encode(self,h):
-        return urllib.urlencode(h.items())
+        return urllib.parse.urlencode(list(h.items()))
     def request(self,req):
         return req.REQUEST
     def copy(self,path=None,param=None):
@@ -413,7 +419,7 @@ class QWebURL:
         p=self.path(path)
         tmp=self.defparam.copy()
         tmp.update(arg)
-        r=''.join(['<input type="hidden" name="%s" value="%s"/>'%(k,cgi.escape(str(v),1)) for k,v in tmp.items()])
+        r=''.join(['<input type="hidden" name="%s" value="%s"/>'%(k,html.escape(str(v),1)) for k,v in list(tmp.items())])
         return (p,r)
 class QWebField:
     def __init__(self,name=None,default="",check=None):
@@ -473,8 +479,8 @@ class QWebForm:
     def __getitem__(self,k):
         return self.fields[k]
     def set_default(self,default,add_missing=1):
-        for k,v in default.items():
-            if self.fields.has_key(k):
+        for k,v in list(default.items()):
+            if k in self.fields:
                 self.fields[k].default=str(v)
             elif add_missing:
                 self.add_field(QWebField(k,v))
@@ -484,12 +490,12 @@ class QWebForm:
         setattr(self.f,f.name,f)
     def add_template(self,e):
         att={}
-        for (an,av) in e.attributes.items():
+        for (an,av) in list(e.attributes.items()):
             an=str(an)
             if an.startswith("t-"):
                 att[an[2:]]=av.encode("utf8")
         for i in ["form-text", "form-password", "form-radio", "form-checkbox", "form-select","form-textarea"]:
-            if att.has_key(i):
+            if i in att:
                 name=att[i].split(".")[-1]
                 default=att.get("default","")
                 check=att.get("check",None)
@@ -505,8 +511,8 @@ class QWebForm:
             if n.nodeType==n.ELEMENT_NODE:
                 self.add_template(n)
     def process_input(self,arg):
-        for f in self.fields.values():
-            if arg.has_key(f.name):
+        for f in list(self.fields.values()):
+            if f.name in arg:
                 f.input=arg[f.name]
                 f.value=f.input
                 if f.trim:
@@ -528,7 +534,7 @@ class QWebForm:
                 f.value=f.default
         self.update()
     def validate_all(self,val=1):
-        for f in self.fields.values():
+        for f in list(self.fields.values()):
             f.validate(val,0)
         self.update()
     def invalidate_all(self):
@@ -537,7 +543,7 @@ class QWebForm:
         self.submitted=True
         self.valid=True
         self.errors=[]
-        for f in self.fields.values():
+        for f in list(self.fields.values()):
             if f.required and f.input==None:
                 self.submitted=False
                 self.valid=False
@@ -549,7 +555,7 @@ class QWebForm:
         self.invalid=self.submitted and self.valid==False
     def collect(self):
         d={}
-        for f in self.fields.values():
+        for f in list(self.fields.values()):
             d[f.name]=f.value
         return d
 class QWebURLEval(QWebEval):
@@ -558,7 +564,7 @@ class QWebURLEval(QWebEval):
     def __getitem__(self,expr):
         r=QWebEval.__getitem__(self,expr)
         if isinstance(r,str):
-            return urllib.quote_plus(r)
+            return urllib.parse.quote_plus(r)
         else:
             return r
 class QWebHtml(QWebXml):
@@ -618,7 +624,7 @@ class QWebHtml(QWebXml):
             out='qweb: missing url %r %r %r'%(u,path,arg)
         else:
             out=v[u].href(path,arg)
-        return ' %s="%s"'%(an[6:],cgi.escape(out,1))
+        return ' %s="%s"'%(an[6:],html.escape(out,1))
     def render_att_href(self,e,an,av,v):
         return self.render_att_url_(e,"t-url-href",av,v)
     def render_att_checked(self,e,an,av,v):
@@ -635,7 +641,7 @@ class QWebHtml(QWebXml):
         return v[u].href(path,arg)
     def render_tag_escurl(self,e,t_att,g_att,v):
         u,path,arg=self.eval_url(t_att["escurl"],v)
-        return cgi.escape(v[u].href(path,arg))
+        return html.escape(v[u].href(path,arg))
     def render_tag_action(self,e,t_att,g_att,v):
         u,path,arg=self.eval_url(t_att["action"],v)
         if not isinstance(v.get(u,0),QWebURL):
@@ -646,17 +652,17 @@ class QWebHtml(QWebXml):
         return self.render_element(e,g_att,v,input)
     def render_tag_form_text(self,e,t_att,g_att,v):
         f=self.eval_object(t_att["form-text"],v)
-        g_att+=' type="text" name="%s" value="%s" class="%s"'%(f.name,cgi.escape(f.value,1),f.css)
+        g_att+=' type="text" name="%s" value="%s" class="%s"'%(f.name,html.escape(f.value,1),f.css)
         return self.render_element(e,g_att,v)
     def render_tag_form_password(self,e,t_att,g_att,v):
         f=self.eval_object(t_att["form-password"],v)
-        g_att+=' type="password" name="%s" value="%s" class="%s"'%(f.name,cgi.escape(f.value,1),f.css)
+        g_att+=' type="password" name="%s" value="%s" class="%s"'%(f.name,html.escape(f.value,1),f.css)
         return self.render_element(e,g_att,v)
     def render_tag_form_textarea(self,e,t_att,g_att,v):
         type="textarea"
         f=self.eval_object(t_att["form-textarea"],v)
         g_att+=' name="%s" class="%s"'%(f.name,f.css)
-        r="<%s%s>%s</%s>"%(type,g_att,cgi.escape(f.value,1),type)
+        r="<%s%s>%s</%s>"%(type,g_att,html.escape(f.value,1),type)
         return r
     def render_tag_form_radio(self,e,t_att,g_att,v):
         f=self.eval_object(t_att["form-radio"],v)
@@ -750,7 +756,7 @@ def qweb_control(self,jump='main',p=[]):
             todo=[]
             for i in jump.split("_"):
                 tmp+=i+"_";
-                if not done.has_key(tmp[:-1]):
+                if tmp[:-1] not in done:
                     todo.append(tmp[:-1])
             jump=None
         elif len(todo):
@@ -759,7 +765,7 @@ def qweb_control(self,jump='main',p=[]):
             if hasattr(self,i):
                 f=getattr(self,i)
                 r=f(*p)
-                if isinstance(r,types.StringType):
+                if isinstance(r,bytes):
                     jump=r
         else:
             break
@@ -782,7 +788,7 @@ class QWebSession(dict):
             "maxlifetime" : 3600,
             "disable" : 0,
         }
-        for k,v in default.items():
+        for k,v in list(default.items()):
             setattr(self,'session_%s'%k,kw.get(k,v))
         # Try to find session
         self.session_found_cookie=0
@@ -790,9 +796,9 @@ class QWebSession(dict):
         self.session_found=0
         self.session_orig=""
         # Try cookie
-        c=Cookie.SimpleCookie()
+        c=http.cookies.SimpleCookie()
         c.load(environ.get('HTTP_COOKIE', ''))
-        if c.has_key(self.session_cookie_name):
+        if self.session_cookie_name in c:
             sid=c[self.session_cookie_name].value[:64]
             if re.match('[a-f0-9]+$',sid) and self.session_load(sid):
                 self.session_id=sid
@@ -817,7 +823,7 @@ class QWebSession(dict):
         if (not self.session_disable) and (len(self) or len(self.session_orig)):
             self.session_save()
             if not self.session_found_cookie:
-                c=Cookie.SimpleCookie()
+                c=http.cookies.SimpleCookie()
                 c[self.session_cookie_name] = self.session_id
                 c[self.session_cookie_name]['path'] = self.session_cookie_path
                 if self.session_cookie_domain:
@@ -833,7 +839,7 @@ class QWebSession(dict):
     def session_load(self,sid):
         fname=os.path.join(self.session_path,'qweb_sess_%s'%sid)
         try:
-            orig=file(fname).read()
+            orig=open(fname).read()
             d=pickle.loads(orig)
         except:
             return
@@ -846,12 +852,12 @@ class QWebSession(dict):
         fname=os.path.join(self.session_path,'qweb_sess_%s'%self.session_id)
         try:
             oldtime=os.path.getmtime(fname)
-        except OSError,IOError:
+        except OSError as IOError:
             oldtime=0
         dump=pickle.dumps(self.copy())
         if (dump != self.session_orig) or (time.time() > oldtime+self.session_maxlifetime/4):
             tmpname=os.path.join(self.session_path,'qweb_sess_%s_%x'%(self.session_id,random.randint(1,2**32)))
-            f=file(tmpname,'wb')
+            f=open(tmpname,'wb')
             f.write(dump)
             f.close()
             if sys.platform=='win32' and os.path.isfile(fname):
@@ -863,14 +869,14 @@ class QWebSession(dict):
             for i in [os.path.join(self.session_path,i) for i in os.listdir(self.session_path) if i.startswith('qweb_sess_')]:
                 if (t > os.path.getmtime(i)+self.session_maxlifetime):
                     os.unlink(i)
-        except OSError,IOError:
+        except OSError as IOError:
             pass
 class QWebSessionMem(QWebSession):
     def session_load(self,sid):
         global _qweb_sessions
         if not "_qweb_sessions" in globals():
             _qweb_sessions={}
-        if _qweb_sessions.has_key(sid):
+        if sid in _qweb_sessions:
             self.session_orig=_qweb_sessions[sid]
             self.update(self.session_orig)
             return 1
@@ -903,13 +909,13 @@ class QWebListDict(dict):
     def __getitem__(self,key):
         return self.get(key,[])
     def appendlist(self,key,val):
-        if self.has_key(key):
+        if key in self:
             self[key].append(val)
         else:
             self[key]=[val]
     def get_qwebdict(self):
         d=QWebDict()
-        for k,v in self.items():
+        for k,v in list(self.items()):
             d[k]=v[-1]
         return d
 class QWebRequest:
@@ -1024,7 +1030,7 @@ class QWebRequest:
         DATA = environ['wsgi.input'].read(length)
         if environ.get('CONTENT_TYPE', '').startswith('multipart'):
             lines = ['Content-Type: %s' % environ.get('CONTENT_TYPE', '')]
-            for key, value in environ.items():
+            for key, value in list(environ.items()):
                 if key.startswith('HTTP_'):
                     lines.append('%s: %s' % (key, value))
             raw = '\r\n'.join(lines) + '\r\n\r\n' + DATA
@@ -1051,7 +1057,7 @@ class QWebRequest:
                 else:
                     POST.appendlist(name_dict['name'], sub.get_payload())
         else:
-            POST.update(cgi.parse_qs(DATA,keep_blank_values=1))
+            POST.update(urllib.parse.parse_qs(DATA,keep_blank_values=1))
         return DATA
 
     def __init__(self,environ,start_response,session=QWebSession):
@@ -1064,26 +1070,26 @@ class QWebRequest:
         # extensions:
         self.FULL_URL = environ['FULL_URL'] = self.get_full_url(environ)
         # REQUEST_URI is optional, fake it if absent
-        if not environ.has_key("REQUEST_URI"):
-            environ["REQUEST_URI"]=urllib.quote(self.SCRIPT_NAME+self.PATH_INFO)
+        if "REQUEST_URI" not in environ:
+            environ["REQUEST_URI"]=urllib.parse.quote(self.SCRIPT_NAME+self.PATH_INFO)
             if environ.get('QUERY_STRING'):
                 environ["REQUEST_URI"]+='?'+environ['QUERY_STRING']
         self.REQUEST_URI = environ["REQUEST_URI"]
         # full quote url path before the ?
         self.FULL_PATH = environ['FULL_PATH'] = self.REQUEST_URI.split('?')[0]
 
-        self.request_cookies=Cookie.SimpleCookie()
+        self.request_cookies=http.cookies.SimpleCookie()
         self.request_cookies.load(environ.get('HTTP_COOKIE', ''))
 
         self.response_started=False
         self.response_gzencode=False
-        self.response_cookies=Cookie.SimpleCookie()
+        self.response_cookies=http.cookies.SimpleCookie()
         # to delete a cookie use: c[key]['expires'] = datetime.datetime(1970, 1, 1)
         self.response_headers=self.HttpHeaders()
         self.response_status="200 OK"
 
         self.php=None
-        if self.environ.has_key("php"):
+        if "php" in self.environ:
             self.php=environ["php"]
             self.SESSION=self.php._SESSION
             self.GET=self.php._GET
@@ -1097,7 +1103,7 @@ class QWebRequest:
                 self.SESSION=session(environ)
             else:
                 self.SESSION=None
-            self.GET_LIST=QWebListDict(cgi.parse_qs(environ.get('QUERY_STRING', ''),keep_blank_values=1))
+            self.GET_LIST=QWebListDict(urllib.parse.parse_qs(environ.get('QUERY_STRING', ''),keep_blank_values=1))
             self.POST_LIST=QWebListDict()
             self.FILES_LIST=QWebListDict()
             self.REQUEST_LIST=QWebListDict(self.GET_LIST)
@@ -1123,18 +1129,18 @@ class QWebRequest:
             else:
                 if environ['SERVER_PORT'] != '80':
                     url += ':' + environ['SERVER_PORT']
-        if environ.has_key('REQUEST_URI'):
+        if 'REQUEST_URI' in environ:
             url += environ['REQUEST_URI']
         else:
-            url += urllib.quote(environ.get('SCRIPT_NAME', ''))
-            url += urllib.quote(environ.get('PATH_INFO', ''))
+            url += urllib.parse.quote(environ.get('SCRIPT_NAME', ''))
+            url += urllib.parse.quote(environ.get('PATH_INFO', ''))
             if environ.get('QUERY_STRING'):
                 url += '?' + environ['QUERY_STRING']
         return url
     get_full_url=staticmethod(get_full_url)
     def save_files(self):
-        for k,v in self.FILES.items():
-            if not v.has_key("tmp_file"):
+        for k,v in list(self.FILES.items()):
+            if "tmp_file" not in v:
                 f=tempfile.NamedTemporaryFile()
                 f.write(v["data"])
                 f.flush()
@@ -1149,28 +1155,39 @@ class QWebRequest:
         ]:
             body+='<table border="1" width="100%" align="center">\n'
             body+='<tr><th colspan="2" align="center">%s</th></tr>\n'%name
-            keys=d.keys()
+            keys=list(d.keys())
             keys.sort()
-            body+=''.join(['<tr><td>%s</td><td>%s</td></tr>\n'%(k,cgi.escape(repr(d[k]))) for k in keys])
+            body+=''.join(['<tr><td>%s</td><td>%s</td></tr>\n'%(k,html.escape(repr(d[k]))) for k in keys])
             body+='</table><br><br>\n\n'
         return body
     def write(self,s):
+        if isinstance(s, bytes):
+                open('/tmp/qweb-wbytes.txt', 'ab').write(s)
+        else:
+                open('/tmp/qweb-wstring.txt', 'a').write(s)
         self.buffer.append(s)
     def echo(self,*s):
-        self.buffer.extend([str(i) for i in s])
+        #self.buffer.extend([str(i) for i in s])
+        self.buffer.append(s)
     def response(self):
         if not self.response_started:
             if not self.php:
-                for k,v in self.FILES.items():
-                    if v.has_key("tmp_file"):
+                for k,v in list(self.FILES.items()):
+                    if "tmp_file" in v:
                         try:
                             v["tmp_file"].close()
                         except OSError:
                             pass
                 if self.response_gzencode and self.environ.get('HTTP_ACCEPT_ENCODING','').find('gzip')!=-1:
-                    zbuf=StringIO.StringIO()
+                    zbuf=io.BytesIO()
                     zfile=gzip.GzipFile(mode='wb', fileobj=zbuf)
-                    zfile.write(''.join(self.buffer))
+                    #b = bytearray()
+                    #b.extend(map(ord, ''.join(self.buffer)))
+                    b = bytearray(''.join(self.buffer).encode('latin1'))
+#                    b.extend(''.join(self.buffer))
+                    #zfile.write((''.join(self.buffer)).encode("utf8"))
+                    open('/tmp/qweb-write.txt', 'ab').write(b)
+                    zfile.write(b)
                     zfile.close()
                     zbuf=zbuf.getvalue()
                     self.buffer=[zbuf]
@@ -1216,10 +1233,10 @@ class QWebRequest:
 # QWeb WSGI HTTP Server to run any WSGI app
 # autorun, run an app as FCGI or CGI otherwise launch the server
 #----------------------------------------------------------
-class QWebWSGIHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class QWebWSGIHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self,*p):
         if self.server.log:
-            return BaseHTTPServer.BaseHTTPRequestHandler.log_message(self,*p)
+            return http.server.BaseHTTPRequestHandler.log_message(self,*p)
     def address_string(self):
         return self.client_address[0]
     def start_response(self,status,headers):
@@ -1231,27 +1248,28 @@ class QWebWSGIHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 ctype_sent=1
             self.send_header(*i)
         if not ctype_sent:
-            self.send_header("Content-type", "text/html")
+            self.send_header(b"Content-type", b"text/html")
         self.end_headers()
         return self.write
     def write(self,data):
         try:
             self.wfile.write(data)
-        except (socket.error, socket.timeout),e:
-            print e
+        except (socket.error, socket.timeout) as e:
+            print(e)
     def bufferon(self):
         if not getattr(self,'wfile_buf',0):
             self.wfile_buf=1
             self.wfile_bak=self.wfile
-            self.wfile=StringIO.StringIO()
+            self.wfile=io.BytesIO()
     def bufferoff(self):
         if self.wfile_buf:
             buf=self.wfile
             self.wfile=self.wfile_bak
+            #self.write(buf.getvalue().decode("utf8"))
             self.write(buf.getvalue())
             self.wfile_buf=0
     def serve(self,type):
-        path_info, parameters, query = urlparse.urlparse(self.path)[2:5]
+        path_info, parameters, query = urllib.parse.urlparse(self.path)[2:5]
         environ = {
             'wsgi.version':         (1,0),
             'wsgi.url_scheme':      'http',
@@ -1275,21 +1293,26 @@ class QWebWSGIHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             'qweb.mode':            'standalone',
         }
         if path_info:
-            environ['PATH_INFO'] = urllib.unquote(path_info)
-        for key, value in self.headers.items():
+            environ['PATH_INFO'] = urllib.parse.unquote(path_info)
+        for key, value in list(self.headers.items()):
             environ['HTTP_' + key.upper().replace('-', '_')] = value
         # Hack to avoid may TCP packets
         self.bufferon()
         appiter=self.server.wsgiapp(environ, self.start_response)
         for data in appiter:
-            self.write(data)
+            #self.write(data.encode("utf8"))
+            #print("Type: %s"%data)
+            if isinstance(data, str):
+                self.write(bytearray(data.encode('latin1'))) # latin1 doesn't touch the bytes
+            else:
+                self.write(data) # latin1 doesn't touch the bytes
             self.bufferoff()
         self.bufferoff()
     def do_GET(self):
         self.serve('GET')
     def do_POST(self):
         self.serve('GET')
-class QWebWSGIServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
+class QWebWSGIServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     """ QWebWSGIServer
         qweb_wsgi_autorun(wsgiapp,ip='127.0.0.1',port=8080,threaded=1)
         A WSGI HTTP server threaded or not and a function to automatically run your
@@ -1306,15 +1329,15 @@ class QWebWSGIServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
         calling environement (http-server, FastCGI or CGI).
     """
     def __init__(self, wsgiapp, ip, port, threaded=1, log=1):
-        BaseHTTPServer.HTTPServer.__init__(self, (ip, port), QWebWSGIHandler)
+        http.server.HTTPServer.__init__(self, (ip, port), QWebWSGIHandler)
         self.wsgiapp = wsgiapp
         self.threaded = threaded
         self.log = log
     def process_request(self,*p):
         if self.threaded:
-            return SocketServer.ThreadingMixIn.process_request(self,*p)
+            return socketserver.ThreadingMixIn.process_request(self,*p)
         else:
-            return BaseHTTPServer.HTTPServer.process_request(self,*p)
+            return http.server.HTTPServer.process_request(self,*p)
 def qweb_wsgi_autorun(wsgiapp,ip='127.0.0.1',port=8080,threaded=1,log=1,callback_ready=None):
     if sys.platform=='win32':
         fcgi=0
@@ -1323,21 +1346,21 @@ def qweb_wsgi_autorun(wsgiapp,ip='127.0.0.1',port=8080,threaded=1,log=1,callback
         sock = socket.fromfd(0, socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.getpeername()
-        except socket.error, e:
+        except socket.error as e:
             if e[0] == errno.ENOTSOCK:
                 fcgi=0
-    if fcgi or os.environ.has_key('REQUEST_METHOD'):
+    if fcgi or 'REQUEST_METHOD' in os.environ:
         import fcgi
         fcgi.WSGIServer(wsgiapp,multithreaded=False).run()
     else:
         if log:
-            print 'Serving on %s:%d'%(ip,port)
+            print('Serving on %s:%d'%(ip,port))
         s=QWebWSGIServer(wsgiapp,ip=ip,port=port,threaded=threaded,log=log)
         if callback_ready:
             callback_ready()
         try:
             s.serve_forever()
-        except KeyboardInterrupt,e:
+        except KeyboardInterrupt as e:
             sys.excepthook(*sys.exc_info())
 
 #----------------------------------------------------------
@@ -1351,6 +1374,6 @@ def qweb_doc():
         body+='\n\n%s\n%s\n\n%s'%(n,'-'*len(n),d)
     return body
 
-    print qweb_doc()
+    print(qweb_doc())
 
 #

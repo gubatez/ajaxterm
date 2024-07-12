@@ -3,6 +3,7 @@
 """ Ajaxterm """
 
 import array,cgi,fcntl,glob,mimetypes,optparse,os,pty,random,re,signal,select,sys,threading,time,termios,struct,pwd
+import html
 
 os.chdir(os.path.normpath(os.path.dirname(__file__)))
 # Optional: Add QWeb in sys path
@@ -18,41 +19,43 @@ class Terminal:
 		self.reset()
 	def init(self):
 		self.esc_seq={
-			"\x00": None,
-			"\x05": self.esc_da,
-			"\x07": None,
-			"\x08": self.esc_0x08,
-			"\x09": self.esc_0x09,
-			"\x0a": self.esc_0x0a,
-			"\x0b": self.esc_0x0a,
-			"\x0c": self.esc_0x0a,
-			"\x0d": self.esc_0x0d,
-			"\x0e": None,
-			"\x0f": None,
-			"\x1b#8": None,
-			"\x1b=": None,
-			"\x1b>": None,
-			"\x1b(0": None,
-			"\x1b(A": None,
-			"\x1b(B": None,
-			"\x1b[c": self.esc_da,
-			"\x1b[0c": self.esc_da,
-			"\x1b]R": None,
-			"\x1b7": self.esc_save,
-			"\x1b8": self.esc_restore,
-			"\x1bD": None,
-			"\x1bE": None,
-			"\x1bH": None,
-			"\x1bM": self.esc_ri,
-			"\x1bN": None,
-			"\x1bO": None,
-			"\x1bZ": self.esc_da,
-			"\x1ba": None,
-			"\x1bc": self.reset,
-			"\x1bn": None,
-			"\x1bo": None,
+			b"\x00": None,
+			b"\x05": self.esc_da,
+			b"\x07": None,
+			b"\x08": self.esc_0x08,
+			b"\x09": self.esc_0x09,
+			b"\x0a": self.esc_0x0a,
+			b"\x0b": self.esc_0x0a,
+			b"\x0c": self.esc_0x0a,
+			b"\x0d": self.esc_0x0d,
+			b"\x0e": None,
+			b"\x0f": None,
+			b"\x1b#8": None,
+			b"\x1b=": None,
+			b"\x1b>": None,
+			b"\x1b(0": None,
+			b"\x1b(A": None,
+			b"\x1b(B": None,
+			b"\x1b[c": self.esc_da,
+			b"\x1b[0c": self.esc_da,
+			b"\x1b]R": None,
+			b"\x1b7": self.esc_save,
+			b"\x1b8": self.esc_restore,
+			b"\x1bD": None,
+			b"\x1bE": None,
+			b"\x1bH": None,
+			b"\x1bM": self.esc_ri,
+			b"\x1bN": None,
+			b"\x1bO": None,
+			b"\x1bZ": self.esc_da,
+			b"\x1ba": None,
+			b"\x1bc": self.reset,
+			b"\x1bn": None,
+			b"\x1bo": None,
+			b"\x1b[?2004h": None,
+			b"\x1b[?2004l": None,
 		}
-		for k,v in self.esc_seq.items():
+		for k,v in list(self.esc_seq.items()):
 			if v==None:
 				self.esc_seq[k]=self.esc_ignore
 		# regex
@@ -61,7 +64,7 @@ class Terminal:
 			r'\]([^\x07]+)\x07' : self.esc_ignore,
 		}
 		self.esc_re=[]
-		for k,v in d.items():
+		for k,v in list(d.items()):
 			self.esc_re.append((re.compile('\x1b'+k),v))
 		# define csi sequences
 		self.csi_seq={
@@ -71,7 +74,7 @@ class Terminal:
 			'K': (self.csi_K,[0]),
 		}
 		for i in [i[4] for i in dir(self) if i.startswith('csi_') and len(i)==5]:
-			if not self.csi_seq.has_key(i):
+			if i not in self.csi_seq:
 				self.csi_seq[i]=(getattr(self,'csi_'+i),[1])
 		# Init 0-256 to latin1 and html translation table
 		self.trl1=""
@@ -98,8 +101,8 @@ class Terminal:
 		self.cy_bak=self.cy=0
 		self.cl=0
 		self.sgr=0x000700
-		self.buf=""
-		self.outbuf=""
+		self.buf=b""
+		self.outbuf=b""
 		self.last_html=""
 	def peek(self,y1,x1,y2,x2):
 		return self.scr[self.width*y1+x1:self.width*y2+x2]
@@ -138,7 +141,7 @@ class Terminal:
 		if self.cl:
 			self.cursor_down()
 			self.cx=0
-		self.scr[(self.cy*self.width)+self.cx]=self.sgr|ord(c)
+		self.scr[(self.cy*self.width)+self.cx]=self.sgr|c
 		self.cursor_right()
 	def esc_0x08(self,s):
 		self.cx=max(0,self.cx-1)
@@ -159,7 +162,7 @@ class Terminal:
 		self.cy=self.cy_bak
 		self.cl=0
 	def esc_da(self,s):
-		self.outbuf="\x1b[?6c"
+		self.outbuf=b"\x1b[?6c"
 	def esc_ri(self,s):
 		self.cy=max(self.st,self.cy-1)
 		if self.cy==self.st:
@@ -285,33 +288,44 @@ class Terminal:
 	def csi_u(self,l):
 		self.esc_restore(0)
 	def escape(self):
+		esc = open('/tmp/ajax-escape.txt','a') #.write(self.buf)
 		e=self.buf
+		#esc.write("e => " + str(type(e))+ '\n')
 		if len(e)>32:
 #			print "error %r"%e
-			self.buf=""
+			self.buf=b""
 		elif e in self.esc_seq:
+			esc.write("%s in esc_seq!"%str(e) + '\n')
 			self.esc_seq[e](e)
-			self.buf=""
+			self.buf=b""
 		else:
 			for r,f in self.esc_re:
-				mo=r.match(e)
+				esc.write("%s more_match!"%str(e) + '\n')
+				mo=r.match(e.decode('latin1'))
 				if mo:
 					f(e,mo)
-					self.buf=""
+					self.buf=b""
 					break
 #		if self.buf=='': print "ESC %r\n"%e
 	def write(self,s):
-		for i in s:
-			if len(self.buf) or (i in self.esc_seq):
-				self.buf+=i
+		open('/tmp/ajax-write.txt', 'ab').write(s)
+		shit = open('/tmp/ajax-is.txt', 'a') #.write(self.esc_seq)
+		for i in s: # i in class int, but esc_seq keys are bytes
+			shit.write("for i => " + str(i.to_bytes()) + " buf: " + str(self.buf) + '\n')
+			if len(self.buf) or (i.to_bytes() in self.esc_seq):
+				self.buf+=i.to_bytes()
+				shit.write("IN esc_seq => " + str(self.buf) + '\n')
 				self.escape()
-			elif i == '\x1b':
-				self.buf+=i
+			elif i.to_bytes() == b'\x1b':
+				self.buf+=i.to_bytes()
+				shit.write(str(self.buf) + " => ESC\n")
 			else:
 				self.echo(i)
+		open('/tmp/ajax-wbuf.txt', 'ab').write(self.buf)
 	def read(self):
 		b=self.outbuf
-		self.outbuf=""
+		self.outbuf=b""
+		open('/tmp/ajax-read.txt', 'ab').write(b)
 		return b
 	def dump(self):
 		r=''
@@ -336,7 +350,7 @@ class Terminal:
 				bg,fg=1,7
 			if (bg!=span_bg or fg!=span_fg or i==h*w-1):
 				if len(span):
-					r+='<span class="f%d b%d">%s</span>'%(span_fg,span_bg,cgi.escape(span.translate(self.trhtml)))
+					r+='<span class="f%d b%d">%s</span>'%(span_fg,span_bg,html.escape(span.translate(self.trhtml)))
 				span=""
 				span_bg,span_fg=bg,fg
 			span+=chr(c)
@@ -380,12 +394,13 @@ class Multiplex:
 			setattr(self,name,SynchronizedMethod(self.lock,orig))
 		self.thread.start()
 	def create(self,w=161,h=38):
+		print("CREATION: \n")
 		pid,fd=pty.fork()
 		if pid==0:
 			try:
 				fdl=[int(i) for i in os.listdir('/proc/self/fd')]
 			except OSError:
-				fdl=range(256)
+				fdl=list(range(256))
 			for i in [i for i in fdl if i>2]:
 				try:
 					os.close(i)
@@ -396,8 +411,10 @@ class Multiplex:
 			elif os.getuid()==0:
 				cmd=['/bin/login']
 			else:
-				sys.stdout.write("Login: ")
+				sys.stdout.write("\nLogin: ")
+				cmd=['/bin/login']
 				login=sys.stdin.readline().strip()
+				open('/tmp/ajax-rematch.txt','w').write(str(login))
 				if re.match('^[0-9A-Za-z-_. ]+$',login):
 					cmd=['ssh']
 					cmd+=['-oPreferredAuthentications=keyboard-interactive,password']
@@ -405,12 +422,14 @@ class Multiplex:
 					cmd+=['-oLogLevel=FATAL']
 					cmd+=['-F/dev/null','-l',login,'localhost']
 				else:
+					#open('/tmp/ajax-exit.txt','w+').write(str(login))
 					os._exit(0)
 			env={}
 			env["COLUMNS"]=str(w)
 			env["LINES"]=str(h)
 			env["TERM"]="linux"
 			env["PATH"]=os.environ['PATH']
+			open('/tmp/ajax-execvpe.txt','w+').write(str(cmd))
 			os.execvpe(cmd[0],cmd,env)
 		else:
 			fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
@@ -423,12 +442,12 @@ class Multiplex:
 	def run(self):
 		return self.alive
 	def fds(self):
-		return self.proc.keys()
+		return list(self.proc.keys())
 	def proc_kill(self,fd):
 		if fd in self.proc:
 			self.proc[fd]['time']=0
 		t=time.time()
-		for i in self.proc.keys():
+		for i in list(self.proc.keys()):
 			t0=self.proc[i]['time']
 			if (t-t0)>120:
 				try:
@@ -442,12 +461,14 @@ class Multiplex:
 			t=self.proc[fd]['term']
 			t.write(os.read(fd,65536))
 			reply=t.read()
+			#open('/tmp/ajax-proc_read.txt','a').write(reply)
 			if reply:
 				os.write(fd,reply)
 			self.proc[fd]['time']=time.time()
 		except (KeyError,IOError,OSError):
 			self.proc_kill(fd)
 	def proc_write(self,fd,s):
+		open('/tmp/ajax-proc_write.txt','a').write(str(s))
 		try:
 			os.write(fd,s)
 		except (IOError,OSError):
@@ -465,7 +486,7 @@ class Multiplex:
 				self.proc_read(fd)
 			if len(i):
 				time.sleep(0.002)
-		for i in self.proc.keys():
+		for i in list(self.proc.keys()):
 			try:
 				os.close(i)
 				os.kill(self.proc[i]['pid'],signal.SIGTERM)
@@ -477,20 +498,34 @@ class AjaxTerm:
 		self.files={}
 		for i in ['css','html','js']:
 			for j in glob.glob('*.%s'%i):
-				self.files[j]=file(j).read()
-		self.files['index']=file(index_file).read()
+				self.files[j]=open(j,'rb').read()
+		self.files['index']=open(index_file,'rb').read()
 		self.mime = mimetypes.types_map.copy()
 		self.mime['.html']= 'text/html; charset=UTF-8'
 		self.multi = Multiplex(cmd)
 		self.session = {}
 	def __call__(self, environ, start_response):
+
 		req = qweb.QWebRequest(environ, start_response,session=None)
+		#open('/tmp/ajax-call.txt','w+').write(str(vars(req)))
 		if req.PATH_INFO.endswith('/u'):
-			s=req.REQUEST["s"]
-			k=req.REQUEST["k"]
-			c=req.REQUEST["c"]
-			w=req.REQUEST.int("w")
-			h=req.REQUEST.int("h")
+			s=req.REQUEST[b"s"]
+			k=req.REQUEST[b"k"]
+			c=req.REQUEST[b"c"]
+			w=req.REQUEST.int(b"w")
+			h=req.REQUEST.int(b"h")
+
+#			if s:
+#				open('/tmp/ajax-reqs.txt','w+').write(str(s)+'\n')
+#			if k:
+#				open('/tmp/ajax-reqk.txt','w+').write(str(k)+'\n')
+#			if c:
+#				open('/tmp/ajax-reqc.txt','w+').write(str(c)+'\n')
+#			if w:
+#				open('/tmp/ajax-reqw.txt','w+').write(str(w)+'\n')
+#			if h:
+#				open('/tmp/ajax-reqh.txt','w+').write(str(h)+'\n')
+
 			if s in self.session:
 				term=self.session[s]
 			else:
@@ -534,8 +569,8 @@ def main():
 		if pid == 0:
 			#os.setsid() ?
 			os.setpgrp()
-			nullin = file('/dev/null', 'r')
-			nullout = file('/dev/null', 'w')
+			nullin = open('/dev/null', 'r')
+			nullout = open('/dev/null', 'w')
 			os.dup2(nullin.fileno(), sys.stdin.fileno())
 			os.dup2(nullout.fileno(), sys.stdout.fileno())
 			os.dup2(nullout.fileno(), sys.stderr.fileno())
@@ -546,22 +581,23 @@ def main():
 					os.setuid(pwd.getpwnam(o.uid).pw_uid)
 		else:
 			try:
-				file(o.pidfile,'w+').write(str(pid)+'\n')
+				open(o.pidfile,'w+').write(str(pid)+'\n')
 			except:
 				pass
-			print 'AjaxTerm at http://localhost:%s/ pid: %d' % (o.port,pid)
+			print('AjaxTerm at http://localhost:%s/ pid: %d' % (o.port,pid))
 			sys.exit(0)
 	else:
-		print 'AjaxTerm at http://localhost:%s/' % o.port
+		print('AjaxTerm at http://localhost:%s/' % o.port)
 	at=AjaxTerm(o.cmd,o.index_file)
 #	f=lambda:os.system('firefox http://localhost:%s/&'%o.port)
 #	qweb.qweb_wsgi_autorun(at,ip='localhost',port=int(o.port),threaded=0,log=o.log,callback_ready=None)
 	try:
 		qweb.QWebWSGIServer(at,ip='localhost',port=int(o.port),threaded=0,log=o.log).serve_forever()
-	except KeyboardInterrupt,e:
+	except KeyboardInterrupt as e:
 		sys.excepthook(*sys.exc_info())
 	at.multi.die()
 
 if __name__ == '__main__':
 	main()
 
+# vim: noexpandtab syntax=python
