@@ -169,6 +169,54 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
 	function keypress(ev) {
                 //return;
 		if (!ev) var ev=window.event;
+
+
+			o={9:1,8:1,27:1,33:1,34:1,35:1,36:1,37:1,38:1,39:1,40:1,45:1,46:1,112:1,
+			113:1,114:1,115:1,116:1,117:1,118:1,119:1,120:1,121:1,122:1,123:1};
+			if (o[ev.keyCode] || ev.ctrlKey || ev.altKey) {
+				ev_which=0;
+
+                        }
+
+			s="kd keyCode="+ev.keyCode+" which="+ev.which+" shiftKey="+ev.shiftKey+" ctrlKey="+ev.ctrlKey+" altKey="+ev.altKey;
+			debug(s);
+		var kc;
+		var k="";
+		if (ev.keyCode)
+			kc=ev.keyCode;
+		if (ev.which)
+			kc=ev.which;
+
+         	k=String.fromCharCode(kc);
+
+		if(k.length) {
+                        //alert("length");
+//			queue(encodeURIComponent(k));
+			if(k=="+") {
+				queue("%2B");
+			} else {
+				queue(escape(k));
+			}
+		} // length
+
+
+		ev.cancelBubble=true;
+		if (ev.stopPropagation) ev.stopPropagation();
+		if (ev.preventDefault)  ev.preventDefault();
+		return false;
+	}
+
+	function keydown(ev) {
+		if (!ev) var ev=window.event;
+		//if (ie) {
+			s="kd keyCode="+ev.keyCode+" which="+ev.which+" shiftKey="+ev.shiftKey+" ctrlKey="+ev.ctrlKey+" altKey="+ev.altKey;
+			debug(s);
+			o={9:1,8:1,27:1,33:1,34:1,35:1,36:1,37:1,38:1,39:1,40:1,45:1,46:1,112:1,
+			113:1,114:1,115:1,116:1,117:1,118:1,119:1,120:1,121:1,122:1,123:1};
+			if (o[ev.keyCode] || ev.ctrlKey || ev.altKey) {
+				ev.which=0;
+//                                alert("FUCK");
+
 		var kc;
 		var k="";
 		if (ev.keyCode)
@@ -191,9 +239,14 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
 			else if (kc==221) k=String.fromCharCode(29); // Ctrl-]
 			else if (kc==219) k=String.fromCharCode(29); // Ctrl-]
 			else if (kc==219) k=String.fromCharCode(0);  // Ctrl-@
-		} else if (ev.which==0) {
-			if (kc==9) k=String.fromCharCode(9);  // Tab
-			else if (kc==8) k=String.fromCharCode(127);  // Backspace
+		} else {
+
+			if (kc==9) {
+                          k=String.fromCharCode(9);  // Tab
+                        }
+			else if (kc==8) {
+                           k=String.fromCharCode(127);  // Backspace
+                        }
 			else if (kc==27) k=String.fromCharCode(27); // Escape
 			else {
 				if (kc==33) k="[5~";        // PgUp
@@ -221,13 +274,10 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
 				if (k.length) {
 					k=String.fromCharCode(27)+k;
 				}
-			}
-		} else {
-			if (kc==8)
-				k=String.fromCharCode(127);  // Backspace
-			else
-				k=String.fromCharCode(kc);
-		}
+			} // else 
+
+		} // else 
+
 		if(k.length) {
 //			queue(encodeURIComponent(k));
 			if(k=="+") {
@@ -235,24 +285,16 @@ ajaxterm.Terminal_ctor=function(id,width,height) {
 			} else {
 				queue(escape(k));
 			}
-		}
+		} // length
+
 		ev.cancelBubble=true;
 		if (ev.stopPropagation) ev.stopPropagation();
 		if (ev.preventDefault)  ev.preventDefault();
 		return false;
-	}
-	function keydown(ev) {
-		if (!ev) var ev=window.event;
-		if (ie) {
-//			s="kd keyCode="+ev.keyCode+" which="+ev.which+" shiftKey="+ev.shiftKey+" ctrlKey="+ev.ctrlKey+" altKey="+ev.altKey;
-//			debug(s);
-			o={9:1,8:1,27:1,33:1,34:1,35:1,36:1,37:1,38:1,39:1,40:1,45:1,46:1,112:1,
-			113:1,114:1,115:1,116:1,117:1,118:1,119:1,120:1,121:1,122:1,123:1};
-			if (o[ev.keyCode] || ev.ctrlKey || ev.altKey) {
-				ev.which=0;
-				return keypress(ev);
-			}
-		}
+
+           } // if o
+
+
 	}
 	function init() {
 		sled.appendChild(document.createTextNode('\xb7'));
