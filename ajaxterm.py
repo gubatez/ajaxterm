@@ -34,6 +34,7 @@ class Terminal:
 			b"\x1b=": None,
 			b"\x1b>": None,
 			b"\x1b(0": None,
+			b"\x1b)0": None,
 			b"\x1b(A": None,
 			b"\x1b(B": None,
 			b"\x1b[c": self.esc_da,
@@ -74,6 +75,7 @@ class Terminal:
 			'K': (self.csi_K,[0]),
 		}
 		for i in [i[4] for i in dir(self) if i.startswith('csi_') and len(i)==5]:
+#			open('/tmp/ajax-eye.txt', 'a').write("i => " + str(i) + '\n');
 			if i not in self.csi_seq:
 				self.csi_seq[i]=(getattr(self,'csi_'+i),[1])
 		# Init 0-256 to latin1 and html translation table
@@ -110,6 +112,7 @@ class Terminal:
 		pos=self.width*y+x
 		self.scr[pos:pos+len(s)]=s
 	def zero(self,y1,x1,y2,x2):
+#		open('/tmp/ajax-zero.txt', 'a').write("zero: %d,%d,%d,%d\n"%(y1,x1,y2,x2))
 		w=self.width*(y2-y1)+x2-x1+1
 		z=array.array('i',[0x000700]*w)
 		self.scr[self.width*y1+x1:self.width*y2+x2+1]=z
@@ -171,17 +174,26 @@ class Terminal:
 		pass
 #		print "term:ignore: %s"%repr(s)
 	def csi_dispatch(self,seq,mo):
+#		seesi = open('/tmp/ajax-csi.txt', 'a') # .write("CSI_DISPATCH: %s: "%seq + " mo: %s"%mo + '\n');
+#		seesi.write("CSI_DISPATCH: %s: "%seq + " mo: %s"%mo + '\n')
 	# CSI sequences
 		s=mo.group(1)
 		c=mo.group(2)
+#		seesi.write("mog1: " + s + " mog2: " + c + '\n')
+		#f=self.csi_seq.get(bytes(c.encode('latin1')),None)
 		f=self.csi_seq.get(c,None)
 		if f:
+#			seesi.write("f : " + f[0].__name__ + '\n')
+			#print ("EFF XXX: " + f[0] + '\n');
 			try:
 				l=[min(int(i),1024) for i in s.split(';') if len(i)<4]
 			except ValueError:
 				l=[]
 			if len(l)==0:
 				l=f[1]
+#			seesi.write("l : ")
+#			seesi.write(':'.join(str(v) for v in l))
+#			seesi.write('\n')
 			f[0](l)
 #		else:
 #			print 'csi ignore',c,l
@@ -214,6 +226,7 @@ class Terminal:
 		self.cy=min(self.height,l[0])-1
 		self.cl=0
 	def csi_J(self,l):
+#		seesi = open('/tmp/ajax-csi.txt', 'a').write("CSI_J\n")
 		if l[0]==0:
 			self.zero(self.cy,self.cx,self.height-1,self.width-1)
 		elif l[0]==1:
@@ -288,19 +301,19 @@ class Terminal:
 	def csi_u(self,l):
 		self.esc_restore(0)
 	def escape(self):
-		esc = open('/tmp/ajax-escape.txt','a') #.write(self.buf)
+#		esc = open('/tmp/ajax-escape.txt','a') #.write(self.buf)
 		e=self.buf
 		#esc.write("e => " + str(type(e))+ '\n')
 		if len(e)>32:
 #			print "error %r"%e
 			self.buf=b""
 		elif e in self.esc_seq:
-			esc.write("%s in esc_seq!"%str(e) + '\n')
+#			esc.write("%s in esc_seq!"%str(e) + '\n')
 			self.esc_seq[e](e)
 			self.buf=b""
 		else:
 			for r,f in self.esc_re:
-				esc.write("%s more_match!"%str(e) + '\n')
+#				esc.write("%s more_match!"%str(e) + '\n')
 				mo=r.match(e.decode('latin1'))
 				if mo:
 					f(e,mo)
@@ -308,24 +321,24 @@ class Terminal:
 					break
 #		if self.buf=='': print "ESC %r\n"%e
 	def write(self,s):
-		open('/tmp/ajax-write.txt', 'ab').write(s)
-		shit = open('/tmp/ajax-is.txt', 'a') #.write(self.esc_seq)
+#		open('/tmp/ajax-write.txt', 'ab').write(s)
+#		shit = open('/tmp/ajax-is.txt', 'a') #.write(self.esc_seq)
 		for i in s: # i in class int, but esc_seq keys are bytes
-			shit.write("for i => " + str(i.to_bytes()) + " buf: " + str(self.buf) + '\n')
+#			shit.write("for i => " + str(i.to_bytes()) + " buf: " + str(self.buf) + '\n')
 			if len(self.buf) or (i.to_bytes() in self.esc_seq):
 				self.buf+=i.to_bytes()
-				shit.write("IN esc_seq => " + str(self.buf) + '\n')
+#				shit.write("IN esc_seq => " + str(self.buf) + '\n')
 				self.escape()
 			elif i.to_bytes() == b'\x1b':
 				self.buf+=i.to_bytes()
-				shit.write(str(self.buf) + " => ESC\n")
+#				shit.write(str(self.buf) + " => ESC\n")
 			else:
 				self.echo(i)
-		open('/tmp/ajax-wbuf.txt', 'ab').write(self.buf)
+#		open('/tmp/ajax-wbuf.txt', 'ab').write(self.buf)
 	def read(self):
 		b=self.outbuf
 		self.outbuf=b""
-		open('/tmp/ajax-read.txt', 'ab').write(b)
+#		open('/tmp/ajax-read.txt', 'ab').write(b)
 		return b
 	def dump(self):
 		r=''
@@ -414,7 +427,7 @@ class Multiplex:
 				sys.stdout.write("\nLogin: ")
 				cmd=['/bin/login']
 				login=sys.stdin.readline().strip()
-				open('/tmp/ajax-rematch.txt','w').write(str(login))
+#				open('/tmp/ajax-rematch.txt','w').write(str(login))
 				if re.match('^[0-9A-Za-z-_. ]+$',login):
 					cmd=['ssh']
 					cmd+=['-oPreferredAuthentications=keyboard-interactive,password']
@@ -429,7 +442,7 @@ class Multiplex:
 			env["LINES"]=str(h)
 			env["TERM"]="linux"
 			env["PATH"]=os.environ['PATH']
-			open('/tmp/ajax-execvpe.txt','w+').write(str(cmd))
+#			open('/tmp/ajax-execvpe.txt','w+').write(str(cmd))
 			os.execvpe(cmd[0],cmd,env)
 		else:
 			fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
@@ -468,7 +481,7 @@ class Multiplex:
 		except (KeyError,IOError,OSError):
 			self.proc_kill(fd)
 	def proc_write(self,fd,s):
-		open('/tmp/ajax-proc_write.txt','a').write(str(s))
+#		open('/tmp/ajax-proc_write.txt','a').write(str(s))
 		try:
 			os.write(fd,s)
 		except (IOError,OSError):
