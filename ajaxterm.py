@@ -301,21 +301,22 @@ class Terminal:
 	def csi_u(self,l):
 		self.esc_restore(0)
 	def escape(self):
-#		esc = open('/tmp/ajax-escape.txt','a') #.write(self.buf)
+		#esc = open('/tmp/ajax-escape.txt','a') #.write(self.buf)
 		e=self.buf
 		#esc.write("e => " + str(type(e))+ '\n')
 		if len(e)>32:
-#			print "error %r"%e
+			#esc.write("error %r"%e)
 			self.buf=b""
 		elif e in self.esc_seq:
-#			esc.write("%s in esc_seq!"%str(e) + '\n')
+#			#esc.write("%s in esc_seq!"%str(e) + '\n')
 			self.esc_seq[e](e)
 			self.buf=b""
 		else:
 			for r,f in self.esc_re:
-#				esc.write("%s more_match!"%str(e) + '\n')
+				#esc.write("%s test match"%str(e) + '\n')
 				mo=r.match(e.decode('latin1'))
 				if mo:
+					#esc.write("found: %s"%mo + '\n')
 					f(e,mo)
 					self.buf=b""
 					break
@@ -352,6 +353,7 @@ class Terminal:
 		w=self.width
 		r=""
 		span=""
+		p=re.compile(r"(\S+-\S+)")
 		span_bg,span_fg=-1,-1
 		for i in range(h*w):
 			q,c=divmod(self.scr[i],256)
@@ -363,7 +365,10 @@ class Terminal:
 				bg,fg=1,7
 			if (bg!=span_bg or fg!=span_fg or i==h*w-1):
 				if len(span):
-					r+='<span class="f%d b%d">%s</span>'%(span_fg,span_bg,html.escape(span.translate(self.trhtml)))
+					pj=html.escape(span.translate(self.trhtml))
+					pj = p.sub('<nobr>\\1</nobr>',pj)
+					#r+='<span class="f%d b%d">%s</span>'%(span_fg,span_bg,html.escape(span.translate(self.trhtml)))
+					r+='<span class="f%d b%d">%s</span>'%(span_fg,span_bg,pj)
 				span=""
 				span_bg,span_fg=bg,fg
 			span+=chr(c)
