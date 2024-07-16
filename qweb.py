@@ -146,7 +146,7 @@ class QWebEval:
         if expr=="0":
             return self.data[0]
         if isinstance(self[expr],str):
-            open('/tmp/qweb-unicode.txt', 'ab').write(self[expr]+'\n')
+#            open('/tmp/qweb-unicode.txt', 'ab').write(self[expr]+'\n')
             return self[expr].encode("utf8")
         return str(self[expr])
     def eval_format(self,expr):
@@ -1161,10 +1161,10 @@ class QWebRequest:
             body+='</table><br><br>\n\n'
         return body
     def write(self,s):
-        if isinstance(s, bytes):
-                open('/tmp/qweb-wbytes.txt', 'ab').write(s)
-        else:
-                open('/tmp/qweb-wstring.txt', 'a').write(s)
+#        if isinstance(s, bytes):
+#                open('/tmp/qweb-wbytes.txt', 'ab').write(s)
+#        else:
+#                open('/tmp/qweb-wstring.txt', 'a').write(s)
         self.buffer.append(s)
     def echo(self,*s):
         #self.buffer.extend([str(i) for i in s])
@@ -1186,7 +1186,7 @@ class QWebRequest:
                     b = bytearray(''.join(self.buffer).encode('latin1'))
 #                    b.extend(''.join(self.buffer))
                     #zfile.write((''.join(self.buffer)).encode("utf8"))
-                    open('/tmp/qweb-write.txt', 'ab').write(b)
+#                    open('/tmp/qweb-write.txt', 'ab').write(b)
                     zfile.write(b)
                     zfile.close()
                     zbuf=zbuf.getvalue()
